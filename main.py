@@ -1,5 +1,3 @@
-from itertools import count
-import json
 import requests
 import time
 from bs4 import BeautifulSoup
@@ -17,6 +15,7 @@ RELEASE_DATE_DICT = {}
 
 
 class AreaType(enum.Enum):
+    """地区类型与划分的int64二进制区段的映射"""
     Province = 1 << 48
     City = 1 << 36
     Country = 1 << 24
@@ -32,7 +31,7 @@ def main():
     # for k in RELEASE_DATE_DICT:
     #     # out(f'{trim_right(URL_BASE)}{k}/index.html')
     #     read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, 2021)
-    read_data(f'{trim_right(URL_BASE)}{2021}/index.html', None, 2021)
+    read_data(f'{trim_right(URL_BASE)}{2021}/index.html', None, 2021, None)
     # out(trim_right(URL_BASE))
 
 
@@ -40,10 +39,11 @@ def init_table():
     out('init table ...')
 
 
-def read_data(url, parent, year):
+def read_data(url, parent, year, parents_id):
     """
     该程序的关键函数
-    该方法为递归爬取数据 url必须是全路径
+    该方法为递归爬取数据 
+    url必须是全路径
     """
     html = BeautifulSoup(http_get(url), 'html.parser')
     # 将数据从html中抽离出来
@@ -62,12 +62,10 @@ def read_data(url, parent, year):
             info['type'] = e[1].text
             info['level'] = level(data[0])
             info['year'] = year
-            # 这个地方涉及深拷贝浅拷贝的指针问题
-            parents_id = parent['parents_id'].copy()
-            parents_id.append(parent['id'])
             info['parents_id'] = parents_id
             info['release_date'] = RELEASE_DATE_DICT[year]
-            info['create_time'] = time.localtime()
+            info['create_time'] = time.strftime(
+                '%Y-%m-%d %H:%M:%S', time.localtime())
             infos.append(info)
     elif(data[0] == AreaType.Province):
         for i in range(0, len(data[1])):
@@ -93,14 +91,10 @@ def read_data(url, parent, year):
             info['id'] = data[0].value * (i+1) + parent['id']
             info['number'] = e[0].text
             info['name'] = e[1].text
-            out(parent['full_name'])
             info['full_name'] = f"{parent['full_name']}/{e[1].text}"
             info['type'] = None
             info['level'] = level(data[0])
             info['year'] = year
-            # 这个地方涉及深拷贝浅拷贝的指针问题
-            parents_id = parent['parents_id'].copy()
-            parents_id.append(parent['id'])
             info['parents_id'] = parents_id
             info['release_date'] = RELEASE_DATE_DICT[year]
             info['create_time'] = time.localtime()
@@ -113,10 +107,17 @@ def read_data(url, parent, year):
     out(infos)
     for i in range(len(urls)):
         if(urls[i]):
-            read_data(trim_right(url)+urls[i], infos[i], year)
+            # parents_id 涉及浅拷贝和深拷贝的指针问题
+            # 使用list.copy() 比较耗费性能 因此父级统一计算 再传递给子级
+            # 这样做可以解决计算的指数级增长问题
+            info = infos[i]
+            ids = info['parents_id'].copy()
+            ids.append(info['id'])
+            read_data(trim_right(url)+urls[i], info, year, ids)
 
 
 def level(type):
+    """level与type的映射"""
     if(type == AreaType.Village):
         return 5
     elif(type == AreaType.Town):
@@ -130,12 +131,12 @@ def level(type):
 
 
 def trim_right(str):
-    """移除该字符创从右往左数第一个'/'后的字符"""
+    """移除该字符串从右往左数第一个'/'右边的字符"""
     return str[:str.rfind('/')+1]
 
 
 def area_type(html):
-    """这个版本升级的亮点：使用区划代码获取区划等级，达到100%正确率，性能比前两个版本判断区划编码和判断链接的方法得到显著提升"""
+    """这个函数是当前版本升级的亮点：使用css类名获取区划等级，达到100%正确率，性能比前两个版本判断区划编码和判断链接的方法得到显著提升"""
     list = html.select('tr.villagetr')
     if(len(list) > 0):
         return (AreaType.Village, list)
@@ -164,7 +165,7 @@ def init_date_dict():
 
 
 def read_file(filename):
-    """根据目录读文件"""
+    """根据路径读文件内容"""
     file = open(filename)
     data = file.read()
     file.close()
