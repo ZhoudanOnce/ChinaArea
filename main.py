@@ -9,9 +9,7 @@ from bs4 import BeautifulSoup
 # 超时
 HTTP_TIME_OUT = 3
 # 休眠
-HTTP_SLEEP = 40
-# 为解决爬太快而添加的间断时间
-HENTAI = 0.3
+HTTP_SLEEP = 20
 
 # 区划代码发布日期字典
 RELEASE_DATE_DICT = {}
@@ -20,6 +18,9 @@ global POOL
 
 # 区划代码首页地址
 URL_BASE = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
+# headers
+HTTP_HEADERS = {
+    'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62', 'referer': URL_BASE}
 # 数据库字符串插入模板
 INSERT_SQL = """insert into 
                 china_area(id,number,name,full_name,type,level,year,parents_id,release_date) 
@@ -97,6 +98,8 @@ async def read_data(url, parent, year, parents_id):
             info.append(RELEASE_DATE_DICT[year])
             infos.append(tuple(info))
     elif(data[0] == AreaType.Province):
+        # 这个地方无法解析 台湾省 香港特别行政区 澳门特别行政区
+        # 因为这三个地区没有行政区划代码
         for i in range(0, len(data[1])):
             info = []
             e = data[1][i]
@@ -201,9 +204,8 @@ def read_file(filename):
 
 def http_get(url):
     """封装requests的get请求，页面转码和超时重试"""
-    time.sleep(HENTAI)
     try:
-        result = requests.get(url, timeout=HTTP_TIME_OUT)
+        result = requests.get(url, timeout=HTTP_TIME_OUT, headers=HTTP_HEADERS)
         if(result.text.find('gb2312', 100, 300) >= 0):
             result.encoding = 'gb2312'
         else:
