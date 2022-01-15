@@ -1,7 +1,10 @@
+import asyncio
+import asyncpg
+import enum
 import requests
 import time
 from bs4 import BeautifulSoup
-import enum
+from sqlalchemy import Table
 
 
 # 区划代码首页地址
@@ -12,10 +15,12 @@ HTTP_TIME_OUT = 2
 HTTP_SLEEP = 60
 # 区划代码发布日期字典
 RELEASE_DATE_DICT = {}
+# 全局变量 全局数据库连接池
+global POOL
 
 
 class AreaType(enum.Enum):
-    """地区类型与划分的int64二进制区段的映射"""
+    """地区类型与划分的int64二进制区段的枚举"""
     Province = 1 << 48
     City = 1 << 36
     Country = 1 << 24
@@ -23,23 +28,46 @@ class AreaType(enum.Enum):
     Village = 1
 
 
-def main():
+async def main():
     """程序入口"""
-    init_date_dict()
+    await init_pool()
+    await init_table()
+    # init_date_dict()
+    await save(None)
     # print(RELEASE_DATE_DICT)
-    # init_table()
     # for k in RELEASE_DATE_DICT:
     #     # out(f'{trim_right(URL_BASE)}{k}/index.html')
     #     read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, 2021)
-    read_data(f'{trim_right(URL_BASE)}{2021}/index.html', None, 2021, None)
+    # await read_data(f'{trim_right(URL_BASE)}{2021}/index.html', None, 2021, None)
     # out(trim_right(URL_BASE))
 
 
-def init_table():
-    out('init table ...')
+async def init_pool():
+    global POOL
+    # 数据库连接字符串
+    # postgres://user:password@host:port/database?option=value
+    # pool连接池使用默认的参数就可
+    POOL = await asyncpg.create_pool(read_file('ODBC.txt'))
 
 
-def read_data(url, parent, year, parents_id):
+async def init_table():
+    """初始化连接字符串 初始化数据表"""
+    global CONNECTING_STRING
+    # 通过异步上下文管理器的方式创建, 会自动帮我们关闭引擎
+    async with POOL.acquire() as conn:
+        await conn.execute(read_file('table.sql'))
+    out('数据表初始化完成')
+
+
+async def save(infos):
+    async with POOL.acquire() as conn:
+        # 使用 executemany 加事务的方式
+        # 因为这里只关注性能和是否插入成功
+        async with conn.transaction():
+            await conn.execute("insert into china_area values (1,'1',  '1',  '1',      null,1,    1,   array[1],  to_date('2018-03-12','yyyy-MM-dd'),now());")
+
+
+async def read_data(url, parent, year, parents_id):
     """
     该程序的关键函数
     该方法为递归爬取数据 
@@ -64,8 +92,7 @@ def read_data(url, parent, year, parents_id):
             info['year'] = year
             info['parents_id'] = parents_id
             info['release_date'] = RELEASE_DATE_DICT[year]
-            info['create_time'] = time.strftime(
-                '%Y-%m-%d %H:%M:%S', time.localtime())
+            info['create_time'] = time.localtime()
             infos.append(info)
     elif(data[0] == AreaType.Province):
         for i in range(0, len(data[1])):
@@ -104,7 +131,7 @@ def read_data(url, parent, year, parents_id):
                 urls.append(a.attrs['href'])
             else:
                 urls.append(None)
-    out(infos)
+    await save(infos)
     for i in range(len(urls)):
         if(urls[i]):
             # parents_id 涉及浅拷贝和深拷贝的指针问题
@@ -113,7 +140,7 @@ def read_data(url, parent, year, parents_id):
             info = infos[i]
             ids = info['parents_id'].copy()
             ids.append(info['id'])
-            read_data(trim_right(url)+urls[i], info, year, ids)
+            await read_data(trim_right(url)+urls[i], info, year, ids)
 
 
 def level(type):
@@ -193,4 +220,4 @@ def out(output):
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
