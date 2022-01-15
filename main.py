@@ -4,19 +4,26 @@ import enum
 import requests
 import time
 from bs4 import BeautifulSoup
-from sqlalchemy import Table
 
 
-# 区划代码首页地址
-URL_BASE = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 # 超时
-HTTP_TIME_OUT = 2
+HTTP_TIME_OUT = 3
 # 休眠
-HTTP_SLEEP = 60
+HTTP_SLEEP = 40
+# 为解决爬太快而添加的间断时间
+HENTAI = 0.3
+
 # 区划代码发布日期字典
 RELEASE_DATE_DICT = {}
 # 全局变量 全局数据库连接池
 global POOL
+
+# 区划代码首页地址
+URL_BASE = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
+# 数据库字符串插入模板
+INSERT_SQL = """insert into 
+                china_area(id,number,name,full_name,type,level,year,parents_id,release_date) 
+                values ($1,$2,$3,$4,$5,$6,$7,$8,to_date($9,'yyyy-MM-dd'))"""
 
 
 class AreaType(enum.Enum):
@@ -32,14 +39,10 @@ async def main():
     """程序入口"""
     await init_pool()
     await init_table()
-    # init_date_dict()
-    await save(None)
-    # print(RELEASE_DATE_DICT)
-    # for k in RELEASE_DATE_DICT:
-    #     # out(f'{trim_right(URL_BASE)}{k}/index.html')
-    #     read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, 2021)
+    init_date_dict()
+    for k in RELEASE_DATE_DICT:
+        await read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, 2021, None)
     # await read_data(f'{trim_right(URL_BASE)}{2021}/index.html', None, 2021, None)
-    # out(trim_right(URL_BASE))
 
 
 async def init_pool():
@@ -52,7 +55,6 @@ async def init_pool():
 
 async def init_table():
     """初始化连接字符串 初始化数据表"""
-    global CONNECTING_STRING
     # 通过异步上下文管理器的方式创建, 会自动帮我们关闭引擎
     async with POOL.acquire() as conn:
         await conn.execute(read_file('table.sql'))
@@ -64,7 +66,8 @@ async def save(infos):
         # 使用 executemany 加事务的方式
         # 因为这里只关注性能和是否插入成功
         async with conn.transaction():
-            await conn.execute("insert into china_area values (1,'1',  '1',  '1',      null,1,    1,   array[1],  to_date('2018-03-12','yyyy-MM-dd'),now());")
+            await conn.executemany(INSERT_SQL, infos)
+    out(f'已插入{len(infos)}条数据')
 
 
 async def read_data(url, parent, year, parents_id):
@@ -81,51 +84,48 @@ async def read_data(url, parent, year, parents_id):
     urls = []
     if(data[0] == AreaType.Village):
         for i in range(0, len(data[1])):
-            info = {}
+            info = []
             e = data[1][i].contents
-            info['id'] = data[0].value * (i+1) + parent['id']
-            info['number'] = e[0].text
-            info['name'] = e[2].text
-            info['full_name'] = f"{parent['full_name']}/{e[2].text}"
-            info['type'] = e[1].text
-            info['level'] = level(data[0])
-            info['year'] = year
-            info['parents_id'] = parents_id
-            info['release_date'] = RELEASE_DATE_DICT[year]
-            info['create_time'] = time.localtime()
-            infos.append(info)
+            info.append(data[0].value * (i+1) + parent[0])
+            info.append(e[0].text)
+            info.append(e[2].text)
+            info.append(f"{parent[3]}/{e[2].text}")
+            info.append(int(e[1].text))
+            info.append(level(data[0]))
+            info.append(year)
+            info.append(parents_id)
+            info.append(RELEASE_DATE_DICT[year])
+            infos.append(tuple(info))
     elif(data[0] == AreaType.Province):
         for i in range(0, len(data[1])):
-            info = {}
+            info = []
             e = data[1][i]
-            info['id'] = data[0].value * (i+1)
+            info.append(data[0].value * (i+1))
             href = e.attrs['href']
-            info['number'] = href[0:2].ljust(12, '0')
-            info['name'] = e.text
-            info['full_name'] = e.text
-            info['type'] = None
-            info['level'] = level(data[0])
-            info['year'] = year
-            info['parents_id'] = []
-            info['release_date'] = RELEASE_DATE_DICT[year]
-            info['create_time'] = time.localtime()
-            infos.append(info)
+            info.append(href[0:2].ljust(12, '0'))
+            info.append(e.text)
+            info.append(e.text)
+            info.append(None)
+            info.append(level(data[0]))
+            info.append(year)
+            info.append([])
+            info.append(RELEASE_DATE_DICT[year])
+            infos.append(tuple(info))
             urls.append(href)
     else:
         for i in range(0, len(data[1])):
-            info = {}
+            info = []
             e = data[1][i].contents
-            info['id'] = data[0].value * (i+1) + parent['id']
-            info['number'] = e[0].text
-            info['name'] = e[1].text
-            info['full_name'] = f"{parent['full_name']}/{e[1].text}"
-            info['type'] = None
-            info['level'] = level(data[0])
-            info['year'] = year
-            info['parents_id'] = parents_id
-            info['release_date'] = RELEASE_DATE_DICT[year]
-            info['create_time'] = time.localtime()
-            infos.append(info)
+            info.append(data[0].value * (i+1) + parent[0])
+            info.append(e[0].text)
+            info.append(e[1].text)
+            info.append(f"{parent[3]}/{e[1].text}")
+            info.append(None)
+            info.append(level(data[0]))
+            info.append(year)
+            info.append(parents_id)
+            info.append(RELEASE_DATE_DICT[year])
+            infos.append(tuple(info))
             a = e[0].find('a')
             if(a):
                 urls.append(a.attrs['href'])
@@ -138,8 +138,8 @@ async def read_data(url, parent, year, parents_id):
             # 使用list.copy() 比较耗费性能 因此父级统一计算 再传递给子级
             # 这样做可以解决计算的指数级增长问题
             info = infos[i]
-            ids = info['parents_id'].copy()
-            ids.append(info['id'])
+            ids = info[7].copy()
+            ids.append(info[0])
             await read_data(trim_right(url)+urls[i], info, year, ids)
 
 
@@ -201,6 +201,7 @@ def read_file(filename):
 
 def http_get(url):
     """封装requests的get请求，页面转码和超时重试"""
+    time.sleep(HENTAI)
     try:
         result = requests.get(url, timeout=HTTP_TIME_OUT)
         if(result.text.find('gb2312', 100, 300) >= 0):
