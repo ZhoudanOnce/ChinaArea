@@ -22,8 +22,8 @@ URL_BASE = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 HTTP_HEADERS = {
     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62', 'referer': URL_BASE}
 # 数据库字符串插入模板
-INSERT_SQL = """insert into 
-                china_area(id,number,name,full_name,type,level,year,parents_id,release_date) 
+INSERT_SQL = """insert into
+                china_area(id,number,name,full_name,type,level,year,parents_id,release_date)
                 values ($1,$2,$3,$4,$5,$6,$7,$8,to_date($9,'yyyy-MM-dd'))"""
 
 
@@ -42,8 +42,7 @@ async def main():
     await init_table()
     init_date_dict()
     for k in RELEASE_DATE_DICT:
-        await read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, 2021, None)
-    # await read_data(f'{trim_right(URL_BASE)}{2021}/index.html', None, 2021, None)
+        await read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, k, [])
 
 
 async def init_pool():
@@ -74,7 +73,7 @@ async def save(infos):
 async def read_data(url, parent, year, parents_id):
     """
     该程序的关键函数
-    该方法为递归爬取数据 
+    该方法为递归爬取数据
     url必须是全路径
     """
     html = BeautifulSoup(http_get(url), 'html.parser')
@@ -86,7 +85,7 @@ async def read_data(url, parent, year, parents_id):
     if(data[0] == AreaType.Village):
         for i in range(0, len(data[1])):
             info = []
-            e = data[1][i].contents
+            e = data[1][i].find_all('td')
             info.append(data[0].value * (i+1) + parent[0])
             info.append(e[0].text)
             info.append(e[2].text)
@@ -105,20 +104,22 @@ async def read_data(url, parent, year, parents_id):
             e = data[1][i]
             info.append(data[0].value * (i+1))
             href = e.attrs['href']
-            info.append(href[0:2].ljust(12, '0'))
+            info.append(href[0: 2].ljust(12, '0'))
             info.append(e.text)
             info.append(e.text)
             info.append(None)
             info.append(level(data[0]))
             info.append(year)
-            info.append([])
+            info.append(parents_id)
             info.append(RELEASE_DATE_DICT[year])
             infos.append(tuple(info))
             urls.append(href)
     else:
         for i in range(0, len(data[1])):
             info = []
-            e = data[1][i].contents
+            # 不可用.contents 和 .children，只能用find_all
+            # 因为这两个方法会将 '\n' 等字符输出
+            e = data[1][i].find_all('td')
             info.append(data[0].value * (i+1) + parent[0])
             info.append(e[0].text)
             info.append(e[1].text)
@@ -162,7 +163,7 @@ def level(type):
 
 def trim_right(str):
     """移除该字符串从右往左数第一个'/'右边的字符"""
-    return str[:str.rfind('/')+1]
+    return str[: str.rfind('/')+1]
 
 
 def area_type(html):
