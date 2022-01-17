@@ -82,7 +82,7 @@ async def read_data(url, parent, year, parents_id):
     urls = []
     url = trim_right(url)
     if(data[0] == AreaType.Village):
-        for i in range(0, len(data[1])):
+        for i in range(len(data[1])):
             info = []
             e = data[1][i].find_all('td')
             info.append(data[0].value * (i+1) + parent[0])
@@ -98,7 +98,7 @@ async def read_data(url, parent, year, parents_id):
     elif(data[0] == AreaType.Province):
         # 这个地方无法解析 台湾省 香港特别行政区 澳门特别行政区
         # 因为这三个地区没有行政区划代码
-        for i in range(0, len(data[1])):
+        for i in range(len(data[1])):
             info = []
             e = data[1][i]
             info.append(data[0].value * (i+1))
@@ -114,7 +114,7 @@ async def read_data(url, parent, year, parents_id):
             infos.append(tuple(info))
             urls.append(f'{url}{href}')
     else:
-        for i in range(0, len(data[1])):
+        for i in range(len(data[1])):
             info = []
             # 不可用.contents 和 .children，只能用find_all
             # 因为这两个方法会将 '\n' 等字符输出
