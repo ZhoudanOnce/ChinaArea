@@ -80,6 +80,7 @@ async def read_data(url, parent, year, parents_id):
     # 转化数据为数据库对象
     infos = []
     urls = []
+    url = trim_right(url)
     if(data[0] == AreaType.Village):
         for i in range(0, len(data[1])):
             info = []
@@ -111,7 +112,7 @@ async def read_data(url, parent, year, parents_id):
             info.append(parents_id)
             info.append(RELEASE_DATE_DICT[year])
             infos.append(tuple(info))
-            urls.append(href)
+            urls.append(f'{url}{href}')
     else:
         for i in range(0, len(data[1])):
             info = []
@@ -130,7 +131,7 @@ async def read_data(url, parent, year, parents_id):
             infos.append(tuple(info))
             a = e[0].find('a')
             if(a):
-                urls.append(a.attrs['href'])
+                urls.append(f"{url}{a.attrs['href']}")
             else:
                 urls.append(None)
     await save(infos)
@@ -138,11 +139,12 @@ async def read_data(url, parent, year, parents_id):
         if(urls[i]):
             # parents_id 涉及浅拷贝和深拷贝的指针问题
             # 使用list.copy() 比较耗费性能 因此父级统一计算 再传递给子级
+            # url也放在组装元组之前计算 并且url在组装元组是就计算完成
             # 这样做可以解决计算的指数级增长问题
             info = infos[i]
             ids = info[7].copy()
             ids.append(info[0])
-            await read_data(trim_right(url)+urls[i], info, year, ids)
+            await read_data(urls[i], info, year, ids)
 
 
 def level(type):
