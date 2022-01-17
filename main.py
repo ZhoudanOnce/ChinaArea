@@ -21,10 +21,8 @@ URL_BASE = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 # headers
 HTTP_HEADERS = {
     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62', 'referer': URL_BASE}
-# 数据库字符串插入模板
-INSERT_SQL = """insert into
-                china_area(id,number,name,full_name,type,level,year,parents_id,release_date)
-                values ($1,$2,$3,$4,$5,$6,$7,$8,to_date($9,'yyyy-MM-dd'))"""
+# 数据库字符串插入模板(极简风) 减少网络交互所产生的字节 节省网络开支
+INSERT_SQL = "insert into china_area values ($1,$2,$3,$4,$5,$6,$7,$8,to_date($9,'yyyy-MM-dd'))"
 
 
 class AreaType(enum.Enum):
@@ -76,7 +74,7 @@ async def read_data(url, parent, year, parents_id):
     该方法为递归爬取数据
     url必须是全路径
     """
-    html = BeautifulSoup(http_get(url), 'html.parser')
+    html = BeautifulSoup(http_get(url), 'html.parser', from_encoding='gb18030')
     # 将数据从html中抽离出来
     data = area_type(html)
     # 转化数据为数据库对象
@@ -167,7 +165,10 @@ def trim_right(str):
 
 
 def area_type(html):
-    """这个函数是当前版本升级的亮点：使用css类名获取区划等级，达到100%正确率，性能比前两个版本判断区划编码和判断链接的方法得到显著提升"""
+    """
+    这个函数是当前版本升级的亮点：使用css类名获取区划等级，达到100%正确率
+    性能比前两个版本判断区划编码和判断链接的方法得到显著提升
+    """
     list = html.select('tr.villagetr')
     if(len(list) > 0):
         return (AreaType.Village, list)
@@ -188,7 +189,8 @@ def area_type(html):
 
 def init_date_dict():
     """初始化数据发布日期字典"""
-    html = BeautifulSoup(http_get(URL_BASE), 'html.parser')
+    html = BeautifulSoup(http_get(URL_BASE), 'html.parser',
+                         from_encoding='gb18030')
     for i in html.select('ul.center_list_contlist span.cont_tit'):
         date = i.select('font')
         RELEASE_DATE_DICT[int(date[0].text.replace('年', ''))] = date[1].text
@@ -206,12 +208,11 @@ def read_file(filename):
 def http_get(url):
     """封装requests的get请求，页面转码和超时重试"""
     try:
+        # 我直接裂开 这个地方经测试不需要判断文本编码 最新bs解决了编码问题 只需要传入参数
+        # 由于不用二进制转字符串以及截取字符串查找charset 因此这个地方优化了性能
         result = requests.get(url, timeout=HTTP_TIME_OUT, headers=HTTP_HEADERS)
-        if(result.text.find('gb2312', 100, 300) >= 0):
-            result.encoding = 'gb2312'
-        else:
-            result.encoding = 'utf-8'
-        return result.text
+        # 使用二进制数据 性能再次质的提升
+        return result.content
     except requests.exceptions.Timeout:
         out(f'休息{HTTP_SLEEP}秒')
         time.sleep(HTTP_SLEEP)
