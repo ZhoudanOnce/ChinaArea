@@ -1,4 +1,5 @@
 import asyncio
+import json
 import asyncpg
 import enum
 import requests
@@ -13,16 +14,17 @@ HTTP_SLEEP = 20
 
 # 区划代码发布日期字典
 RELEASE_DATE_DICT = {}
+# 全局变量 全局数据库信息 => config.json
+global SQL_INFO
 # 全局变量 全局数据库连接池
 global POOL
+
 
 # 区划代码首页地址
 URL_BASE = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 # headers
 HTTP_HEADERS = {
     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62', 'referer': URL_BASE}
-# 数据库字符串插入模板(极简风) 减少网络交互所产生的字节 节省网络开支
-INSERT_SQL = "insert into china_area values ($1,$2,$3,$4,$5,$6,$7,$8,to_date($9,'yyyy-MM-dd'))"
 
 
 class AreaType(enum.Enum):
@@ -39,16 +41,21 @@ async def main():
     await init_pool()
     await init_table()
     init_date_dict()
-    for k in RELEASE_DATE_DICT:
-        await read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, k, [])
+    for k in SQL_INFO['Year']:
+        if(k in RELEASE_DATE_DICT):
+            await read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, k, [])
+        else:
+            out(f'未找到{k}年数据')
 
 
 async def init_pool():
+    global SQL_INFO
+    SQL_INFO = json.loads(read_file('config.json'))
     global POOL
     # 数据库连接字符串
     # postgres://user:password@host:port/database?option=value
     # pool连接池使用默认的参数就可
-    POOL = await asyncpg.create_pool(read_file('ODBC.txt'))
+    POOL = await asyncpg.create_pool(SQL_INFO['ODBC'])
 
 
 async def init_table():
@@ -64,7 +71,7 @@ async def save(infos):
         # 使用 executemany 加事务的方式
         # 因为这里只关注性能和是否插入成功
         async with conn.transaction():
-            await conn.executemany(INSERT_SQL, infos)
+            await conn.executemany(SQL_INFO['InsertSQL'], infos)
     out(f'已插入{len(infos)}条数据')
 
 
@@ -122,7 +129,7 @@ async def read_data(url, parent, year, parents_id):
             info.append(data[0].value * (i+1) + parent[0])
             info.append(e[0].text)
             info.append(e[1].text)
-            info.append(f"{parent[3]}/{e[1].text}")
+            info.append(f'{parent[3]}/{e[1].text}')
             info.append(None)
             info.append(level(data[0]))
             info.append(year)
