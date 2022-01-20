@@ -12,9 +12,9 @@ from asyncpg import Pool
 
 
 # 超时
-HTTP_TIME_OUT: ClientTimeout = aiohttp.ClientTimeout(total=3)
+HTTP_TIME_OUT: ClientTimeout = aiohttp.ClientTimeout(total=2)
 # 休眠
-HTTP_SLEEP: int = 20
+HTTP_SLEEP: int = 2
 # 区划代码发布日期字典
 RELEASE_DATE_DICT: dict[int, str] = None
 # 全局数据库信息 => config.json
@@ -225,10 +225,10 @@ async def http_get(url: str, session: ClientSession) -> bytes:
     try:
         async with session.get(url) as resp:
             return await resp.content.read()
-    except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError):
+    except (asyncio.exceptions.TimeoutError, asyncio.exceptions.InvalidStateError):
         out(f'休息{HTTP_SLEEP}秒')
         time.sleep(HTTP_SLEEP)
-        return await http_get(str, session)
+        return await http_get(url, session)
 
 
 async def read_file(file_name: str) -> str:
