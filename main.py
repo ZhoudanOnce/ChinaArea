@@ -2,28 +2,31 @@ import asyncio
 import json
 import asyncpg
 import enum
-import requests
 import time
 from bs4 import BeautifulSoup
+from bs4.element import Tag, ResultSet
+import aiofiles
+import aiohttp
+from aiohttp import ClientSession, BaseConnector, ClientTimeout
+from asyncpg import Pool
 
 
 # 超时
-HTTP_TIME_OUT = 3
+HTTP_TIME_OUT: ClientTimeout = aiohttp.ClientTimeout(total=3)
 # 休眠
-HTTP_SLEEP = 20
-
+HTTP_SLEEP: int = 20
 # 区划代码发布日期字典
-RELEASE_DATE_DICT = {}
-# 全局变量 全局数据库信息 => config.json
-global SQL_INFO
-# 全局变量 全局数据库连接池
-global POOL
-
-
+RELEASE_DATE_DICT: dict[int, str] = None
+# 全局数据库信息 => config.json
+SQL_INFO = None
+# 全局数据库连接池
+POOL: Pool = None
+# 全局http连接配置
+CONNECTOR: BaseConnector = None
 # 区划代码首页地址
-URL_BASE = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
+URL_BASE: str = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 # headers
-HTTP_HEADERS = {
+HTTP_HEADERS: dict[str, str] = {
     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62', 'referer': URL_BASE}
 
 
@@ -36,37 +39,43 @@ class AreaType(enum.Enum):
     Village = 1
 
 
-async def main():
+async def main() -> None:
     """程序入口"""
+    global SQL_INFO, HTTP_TIME_OUT, HTTP_HEADERS, CONNECTOR, RELEASE_DATE_DICT, URL_BASE
     await init_pool()
     await init_table()
-    init_date_dict()
-    for k in SQL_INFO['Year']:
-        if(k in RELEASE_DATE_DICT):
-            await read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, k, [])
-        else:
-            out(f'未找到{k}年数据')
+    async with aiohttp.ClientSession(timeout=HTTP_TIME_OUT, headers=HTTP_HEADERS, connector=CONNECTOR) as session:
+        await init_date_dict(session)
+        for k in SQL_INFO['Year']:
+            if(k in RELEASE_DATE_DICT):
+                await read_data(f'{trim_right(URL_BASE)}{k}/index.html', None, k, [], session)
+            else:
+                out(f'未找到{k}年数据')
 
 
-async def init_pool():
-    global SQL_INFO
-    SQL_INFO = json.loads(read_file('config.json'))
-    global POOL
+async def init_pool() -> None:
+    """初始化数据库连接池"""
+    global SQL_INFO, POOL
+    config = await read_file('config.json')
+    SQL_INFO = json.loads(config)
     # 数据库连接字符串
     # postgres://user:password@host:port/database?option=value
     # pool连接池使用默认的参数就可
     POOL = await asyncpg.create_pool(SQL_INFO['ODBC'])
 
 
-async def init_table():
+async def init_table() -> None:
     """初始化连接字符串 初始化数据表"""
+    global POOL
     # 通过异步上下文管理器的方式创建, 会自动帮我们关闭引擎
     async with POOL.acquire() as conn:
-        await conn.execute(read_file('table.sql'))
+        sql = await read_file('table.sql')
+        await conn.execute(sql)
     out('数据表初始化完成')
 
 
-async def save(infos):
+async def save(infos: list[tuple]) -> None:
+    global SQL_INFO, POOL
     async with POOL.acquire() as conn:
         # 使用 executemany 加事务的方式
         # 因为这里只关注性能和是否插入成功
@@ -75,13 +84,14 @@ async def save(infos):
     out(f'已插入{len(infos)}条数据')
 
 
-async def read_data(url, parent, year, parents_id):
+async def read_data(url: str, parent: tuple, year: int, parents_id: list[int], session: ClientSession) -> None:
     """
     该程序的关键函数
     该方法为递归爬取数据
     url必须是全路径
     """
-    html = BeautifulSoup(http_get(url), 'html.parser', from_encoding='gb18030')
+    body = await http_get(url, session)
+    html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     # 将数据从html中抽离出来
     data = area_type(html)
     # 转化数据为数据库对象
@@ -95,7 +105,7 @@ async def read_data(url, parent, year, parents_id):
             info.append(data[0].value * (i+1) + parent[0])
             info.append(e[0].text)
             info.append(e[2].text)
-            info.append(f"{parent[3]}/{e[2].text}")
+            info.append(f'{parent[3]}/{e[2].text}')
             info.append(int(e[1].text))
             info.append(level(data[0]))
             info.append(year)
@@ -151,10 +161,10 @@ async def read_data(url, parent, year, parents_id):
             info = infos[i]
             ids = info[7].copy()
             ids.append(info[0])
-            await read_data(urls[i], info, year, ids)
+            await read_data(urls[i], info, year, ids, session)
 
 
-def level(type):
+def level(type: AreaType) -> int:
     """level与type的映射"""
     if(type == AreaType.Village):
         return 5
@@ -168,70 +178,71 @@ def level(type):
         return 1
 
 
-def trim_right(str):
+def trim_right(str: str) -> str:
     """移除该字符串从右往左数第一个'/'右边的字符"""
     return str[: str.rfind('/')+1]
 
 
-def area_type(html):
+def area_type(html: BeautifulSoup) -> tuple[AreaType, ResultSet[Tag]]:
     """
     这个函数是当前版本升级的亮点：使用css类名获取区划等级，达到100%正确率
     性能比前两个版本判断区划编码和判断链接的方法得到显著提升
     """
-    list = html.select('tr.villagetr')
-    if(len(list) > 0):
-        return (AreaType.Village, list)
-    list = html.select('tr.towntr')
-    if(len(list) > 0):
-        return (AreaType.Town, list)
-    list = html.select('tr.towntr')
-    if(len(list) > 0):
-        return (AreaType.Town, list)
-    list = html.select('tr.countytr')
-    if(len(list) > 0):
-        return (AreaType.Country, list)
-    list = html.select('tr.citytr')
-    if(len(list) > 0):
-        return (AreaType.City, list)
+    rows = html.select('tr.villagetr')
+    if(len(rows) > 0):
+        return (AreaType.Village, rows)
+    rows = html.select('tr.towntr')
+    if(len(rows) > 0):
+        return (AreaType.Town, rows)
+    rows = html.select('tr.towntr')
+    if(len(rows) > 0):
+        return (AreaType.Town, rows)
+    rows = html.select('tr.countytr')
+    if(len(rows) > 0):
+        return (AreaType.Country, rows)
+    rows = html.select('tr.citytr')
+    if(len(rows) > 0):
+        return (AreaType.City, rows)
     return (AreaType.Province, html.select('tr.provincetr a'))
 
 
-def init_date_dict():
+async def init_date_dict(session: ClientSession):
     """初始化数据发布日期字典"""
-    html = BeautifulSoup(http_get(URL_BASE), 'html.parser',
-                         from_encoding='gb18030')
+    global RELEASE_DATE_DICT, URL_BASE
+    body = await http_get(URL_BASE, session)
+    html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
+    date_dict: dict[int, str] = {}
     for i in html.select('ul.center_list_contlist span.cont_tit'):
         date = i.select('font')
-        RELEASE_DATE_DICT[int(date[0].text.replace('年', ''))] = date[1].text
+        date_dict[int(date[0].text.replace('年', ''))] = date[1].text
+    RELEASE_DATE_DICT = date_dict
     out('区域数据发布日期初始化完成')
 
 
-def read_file(filename):
-    """根据路径读文件内容"""
-    file = open(filename)
-    data = file.read()
-    file.close()
-    return data
-
-
-def http_get(url):
-    """封装requests的get请求，页面转码和超时重试"""
+async def http_get(url: str, session: ClientSession) -> bytes:
+    """异步封装的get请求 加对异常的捕获 使用共用一个session处理并发 优化性能"""
+    global HTTP_SLEEP
     try:
-        # 我直接裂开 这个地方经测试不需要判断文本编码 最新bs解决了编码问题 只需要传入参数
-        # 由于不用二进制转字符串以及截取字符串查找charset 因此这个地方优化了性能
-        result = requests.get(url, timeout=HTTP_TIME_OUT, headers=HTTP_HEADERS)
-        # 使用二进制数据 性能再次质的提升
-        return result.content
-    except requests.exceptions.Timeout:
+        async with session.get(url) as resp:
+            return await resp.content.read()
+    except (aiohttp.ServerTimeoutError, aiohttp.ServerConnectionError):
         out(f'休息{HTTP_SLEEP}秒')
         time.sleep(HTTP_SLEEP)
-        return http_get(url)
+        return await http_get(str, session)
 
 
-def out(output):
+async def read_file(file_name: str) -> str:
+    async with aiofiles.open(file_name) as file:
+        return await file.read()
+
+
+def out(output: any) -> None:
     """将时间和内容输出到控制台"""
     print(f"{time.strftime('[%H:%M:%S]', time.localtime())} {output}")
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        out('程序 ctrl + c 中止')
