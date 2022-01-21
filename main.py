@@ -94,6 +94,10 @@ async def read_data(url: str, parent: tuple, year: int, parents_id: list[int], s
     html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     # 将数据从html中抽离出来
     data = area_type(html)
+    # 纠错算法 强势来袭
+    if(len(data[1]) == 0):
+        await read_data(url, parent, year, parents_id, session)
+        return
     # 转化数据为数据库对象
     infos = []
     urls = []
