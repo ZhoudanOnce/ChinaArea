@@ -21,8 +21,6 @@ RELEASE_DATE_DICT: dict[int, str] = None
 SQL_INFO = None
 # 全局数据库连接池
 POOL: Pool = None
-# 全局http连接配置
-CONNECTOR: BaseConnector = None
 # 区划代码首页地址
 URL_BASE: str = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 # headers
@@ -41,10 +39,10 @@ class AreaType(enum.Enum):
 
 async def main() -> None:
     """程序入口"""
-    global SQL_INFO, HTTP_TIME_OUT, HTTP_HEADERS, CONNECTOR, RELEASE_DATE_DICT, URL_BASE
+    global SQL_INFO, HTTP_TIME_OUT, HTTP_HEADERS, RELEASE_DATE_DICT, URL_BASE
     await init_pool()
     await init_table()
-    async with aiohttp.ClientSession(timeout=HTTP_TIME_OUT, headers=HTTP_HEADERS, connector=CONNECTOR) as session:
+    async with aiohttp.ClientSession(timeout=HTTP_TIME_OUT, headers=HTTP_HEADERS) as session:
         await init_date_dict(session)
         for k in SQL_INFO['Year']:
             if(k in RELEASE_DATE_DICT):
