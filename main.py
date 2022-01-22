@@ -89,11 +89,16 @@ async def read_data(url: str, parent: tuple, year: int, parents_id: list[int], s
     url必须是全路径
     """
     body = await http_get(url, session)
+    # 金门县未解放
+    if(body == None):
+        return
     html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     # 将数据从html中抽离出来
     data = area_type(html)
     # 纠错算法 强势来袭
     if(len(data[1]) == 0):
+        out(f'休息{HTTP_SLEEP}秒 爬虫出现零爬取 {url}')
+        time.sleep(HTTP_SLEEP)
         await read_data(url, parent, year, parents_id, session)
         return
     # 转化数据为数据库对象
@@ -226,6 +231,8 @@ async def http_get(url: str, session: ClientSession) -> bytes:
     global HTTP_SLEEP
     try:
         async with session.get(url) as resp:
+            if(resp.status == 404):
+                return None
             return await resp.content.read()
     except (asyncio.exceptions.TimeoutError, asyncio.exceptions.InvalidStateError):
         out(f'休息{HTTP_SLEEP}秒')
