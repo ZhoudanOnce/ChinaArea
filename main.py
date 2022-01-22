@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag, ResultSet
 import aiofiles
 import aiohttp
-from aiohttp import ClientSession, BaseConnector, ClientTimeout
+from aiohttp import ClientSession, ClientTimeout
 from asyncpg import Pool
 
 
