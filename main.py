@@ -95,6 +95,10 @@ async def read_data(url: str, parent: tuple, year: int, parents_id: list[int], s
     html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     # 将数据从html中抽离出来
     data = area_type(html)
+    # 2014 2015大胡同街道下面没有单位但链接可访问
+    if(data == None):
+        out(f'警告 这个底下下也没有{url}')
+        return
     # 纠错算法 强势来袭
     if(len(data[1]) == 0):
         out(f'休息{HTTP_SLEEP}秒 爬虫出现零爬取 {url}')
@@ -210,7 +214,12 @@ def area_type(html: BeautifulSoup) -> tuple[AreaType, ResultSet[Tag]]:
     rows = html.select('tr.citytr')
     if(len(rows) > 0):
         return (AreaType.City, rows)
-    return (AreaType.Province, html.select('tr.provincetr a'))
+    rows = html.select('tr.provincetr a')
+    if(len(rows) > 0):
+        return (AreaType.Province, rows)
+    rows = html.select('table.villagetable')
+    if(len(rows) > 0):
+        return None
 
 
 async def init_date_dict(session: ClientSession):
