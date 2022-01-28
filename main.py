@@ -99,7 +99,7 @@ async def read_data(url: str, parent: tuple, year: int, parents_id: list[int], s
     if(data == None):
         out(f'警告 这个底下下也没有{url}')
         return
-    # 纠错算法 强势来袭
+    # 纠错算法 强势来袭 准备在下个版本中加入QQ消息报警提醒
     if(len(data[1]) == 0):
         out(f'休息{HTTP_SLEEP}秒 爬虫出现零爬取 {url}')
         time.sleep(HTTP_SLEEP)
@@ -220,6 +220,9 @@ def area_type(html: BeautifulSoup) -> tuple[AreaType, ResultSet[Tag]]:
     rows = html.select('table.villagetable')
     if(len(rows) > 0):
         return None
+    else:
+        out(html.prefix)
+        raise Exception("也不是村 也没有数据")
 
 
 async def init_date_dict(session: ClientSession):

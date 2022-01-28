@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS china_area(
+CREATE TABLE IF NOT EXISTS area_info(
 	id int8 NOT NULL,
 	number varchar(20) NOT NULL,
 	name text NOT NULL,
@@ -9,5 +9,5 @@ CREATE TABLE IF NOT EXISTS china_area(
 	parents_id _int8 NOT NULL,
 	release_date date NOT NULL,
 	create_time timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT china_area_pk PRIMARY KEY (id,year)
+    CONSTRAINT area_info_pk PRIMARY KEY (id,year)
 );
