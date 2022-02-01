@@ -117,3 +117,4 @@ ODBC.txt
 .gitattributes
 .vscode/
 *.tar
+test.py

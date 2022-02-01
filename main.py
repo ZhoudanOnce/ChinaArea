@@ -94,6 +94,8 @@ async def read_data(url: str, parent: tuple, year: int, parents_id: list[int], s
         return
     html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     # 将数据从html中抽离出来
+    if(html.prettify() == None):
+        raise Exception(f"这个地方为啥没有数据 {url}")
     data = area_type(html)
     # 2014 2015大胡同街道下面没有单位但链接可访问
     if(data == None):
@@ -221,7 +223,7 @@ def area_type(html: BeautifulSoup) -> tuple[AreaType, ResultSet[Tag]]:
     if(len(rows) > 0):
         return None
     else:
-        out(html.prefix)
+        out(html.prettify())
         raise Exception("也不是村 也没有数据")
 
 
@@ -245,7 +247,14 @@ async def http_get(url: str, session: ClientSession) -> bytes:
         async with session.get(url) as resp:
             if(resp.status == 404):
                 return None
-            return await resp.content.read()
+            elif(resp.status == 200):
+                return await resp.content.read()
+            else:
+                out('注意啦 这里出问题了 但貌似还有救 重试中')
+                out(await resp.text())
+                out(f'休息{HTTP_SLEEP}秒')
+                time.sleep(HTTP_SLEEP)
+                return await http_get(url, session)
     except (asyncio.exceptions.TimeoutError, asyncio.exceptions.InvalidStateError):
         out(f'休息{HTTP_SLEEP}秒')
         time.sleep(HTTP_SLEEP)

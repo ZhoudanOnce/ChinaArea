@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY config.json ./
 COPY table.sql ./
-COPY main.py ./
+COPY AreaInfo.py ./
 
-CMD [ "python3", "./main.py" ]
+CMD [ "python3", "AreaInfo.py" ]
