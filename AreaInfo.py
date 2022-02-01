@@ -21,7 +21,7 @@ URL_BASE: str = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 # 区划代码发布日期字典
 DATE_DICT: dict[int, str] = None
 # 休眠
-TIME_SLEEP: int = 2
+TIME_SLEEP: int = 1
 # 数据缓存
 DATA_TEMP: list[tuple[int, str, str, str, int, int, int, list[int], str]] = []
 # 省缓存
