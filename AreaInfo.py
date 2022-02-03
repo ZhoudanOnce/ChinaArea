@@ -87,7 +87,7 @@ async def init_table() -> None:
 async def init_session() -> None:
     out('init_session', '初始化Session')
     time_out: int = 1
-    conn_limit: int = 200
+    conn_limit: int = 50
     header_dic: dict[str, str] = {
         'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62',
         'referer': URL_BASE}
