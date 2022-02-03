@@ -9,4 +9,4 @@ COPY config.json ./
 COPY table.sql ./
 COPY AreaInfo.py ./
 
-CMD [ "python3", "AreaInfo.py" ]
+CMD [ "python3", "-u", "AreaInfo.py" ]

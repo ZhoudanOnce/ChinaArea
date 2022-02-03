@@ -118,3 +118,4 @@ ODBC.txt
 .vscode/
 *.tar
 test.py
+*.html

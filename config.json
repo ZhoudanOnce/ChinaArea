@@ -1,5 +1,5 @@
 {
   "ODBC": "postgres://postgres:sdbixx@localhost:5432/postgres",
-  "Year": [2020, 2019],
-  "InsertSQL": "insert into china_area_info values ($1,$2,$3,$4,$5,$6,$7,$8,to_date($9,'yyyy-MM-dd'))"
+  "Year": [2021],
+  "InsertSQL": "insert into area_info values ($1,$2,$3,$4,$5,$6,$7,$8,to_date($9,'yyyy-MM-dd'))"
 }

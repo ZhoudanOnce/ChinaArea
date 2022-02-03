@@ -21,15 +21,13 @@ URL_BASE: str = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/index.html'
 # 区划代码发布日期字典
 DATE_DICT: dict[int, str] = None
 # 休眠
-TIME_SLEEP: int = 1
+TIME_SLEEP: int = 0.5
 # 数据缓存
 DATA_TEMP: list[tuple[int, str, str, str, int, int, int, list[int], str]] = []
-# 省缓存
-DATA_PROVINCE: list[tuple[str, int, list[int], str]] = []
+# 城市缓存
+DATA_CITY: list[tuple[str, int, list[int], str]] = []
 # 当前年
 CONTEXT_YEAR: int = None
-# 当前年发布日期
-CONTEXT_DATE: str = None
 
 
 class AreaType(enum.Enum):
@@ -88,8 +86,8 @@ async def init_table() -> None:
 
 async def init_session() -> None:
     out('init_session', '初始化Session')
-    time_out: int = 2
-    conn_limit: int = 50
+    time_out: int = 1
+    conn_limit: int = 200
     header_dic: dict[str, str] = {
         'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36 Edg/96.0.1054.62',
         'referer': URL_BASE}
@@ -117,9 +115,9 @@ async def init_date() -> None:
 async def start() -> None:
     for year in CONFIG['Year']:
         if(year in DATE_DICT):
-            global CONTEXT_YEAR, CONTEXT_DATE
+            global CONTEXT_YEAR
             CONTEXT_YEAR = year
-            CONTEXT_DATE = DATE_DICT[year]
+            out('start', f'开始下载{year}年数据')
             await make_data()
         else:
             out('start', f'未找到{year}年数据')
@@ -133,32 +131,46 @@ async def make_data() -> None:
     body = await get_data(url)
     html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     page_rows: tuple[AreaType, ResultSet[Tag]] = read_data(html)
-    global DATA_PROVINCE
-    DATA_PROVINCE = build_data(data=page_rows[1],
-                               type=page_rows[0],
-                               page_url=url)
-    for province in DATA_PROVINCE:
-        out('make_data', f'执行下载数据 >> {province[3]}')
+    provinces = build_data(data=page_rows[1],
+                           type=page_rows[0],
+                           page_url=url)
+    out('make_data', '加载城市数据')
+    global DATA_CITY
+    for p in provinces:
+        p_body = await get_data(p[0])
+        p_html = BeautifulSoup(p_body, 'html.parser', from_encoding='gb18030')
+        p_page_rows: tuple[AreaType, ResultSet[Tag]] = read_data(p_html)
+        DATA_CITY += build_data(data=p_page_rows[1],
+                                type=p_page_rows[0],
+                                page_url=p[0],
+                                parent_id=p[1],
+                                parents_id=p[2]+p[1],
+                                parent_full_name=p[3])
+    for c in DATA_CITY:
+        out('make_data', f'执行下载数据 >> {c[3]}')
         start_time = time.time()
-        await next_down(province)
-        out('make_data', f'{province[3]} 数据下载成功 用时{time_use(start_time)}s')
+        await next_down(c)
+        out('make_data', f'{c[3]} 数据下载成功 用时{time_use(start_time)}s')
         await save_data()
+    # 完成一年的数据加载后清除城市缓存信息
+    DATA_CITY.clear()
 
 
-async def next_down(info: tuple[str, int, list[int], str]):
+async def next_down(info: tuple[str, int, list[int], str], is_rec: bool = True) -> None:
     """加载市以下的行政单位 不包括城市"""
     body = await get_data(info[0])
     html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     next_page_rows: tuple[AreaType, ResultSet[Tag]] = read_data(html)
-    pi = info[2].copy()
-    pi.append(info[1])
+    if(next_page_rows == None):
+        out('next_down', f'奇奇怪怪日志 url >> {info[0]}')
+        return
     next_infos = build_data(data=next_page_rows[1],
                             type=next_page_rows[0],
                             page_url=info[0],
                             parent_id=info[1],
-                            parents_id=pi,
+                            parents_id=info[2] + info[1],
                             parent_full_name=info[3])
-    if(next_infos):
+    if(next_infos and is_rec):
         for ni in next_infos:
             await next_down(ni)
 
@@ -195,7 +207,7 @@ def read_data(html: BeautifulSoup) -> tuple[AreaType, ResultSet[Tag]]:
         return None
     else:
         out('read_data', html.prettify())
-        raise Exception("捕获到异常数据")
+        raise Exception('捕获到异常数据')
 
 
 def build_data(data: ResultSet[Tag],
@@ -213,7 +225,7 @@ def build_data(data: ResultSet[Tag],
             name: str = e[2].text
             model = (type.value * (i+1) + parent_id, e[0].text, name,
                      f'{parent_full_name}/{name}', int(e[1].text),
-                     level(type), CONTEXT_YEAR, parents_id, CONTEXT_DATE)
+                     level(type), CONTEXT_YEAR, parents_id, DATE_DICT[CONTEXT_YEAR])
             DATA_TEMP.append(model)
         return []
     elif(type == AreaType.Province):
@@ -221,10 +233,10 @@ def build_data(data: ResultSet[Tag],
         for i in range(loop):
             id = type.value * (i+1)
             e: Tag = data[i]
-            href = e.attrs['href']
-            name = e.text
+            href: str = e.attrs['href']
+            name: str = e.text
             model = (id, href[0: 2].ljust(12, '0'), name, name,
-                     None, level(type), CONTEXT_YEAR, [], CONTEXT_DATE)
+                     None, level(type), CONTEXT_YEAR, [], DATE_DICT[CONTEXT_YEAR])
             DATA_TEMP.append(model)
             next_info = (f'{next_base_url}{href}', id, parents_id, name)
             next_infos.append(next_info)
@@ -237,7 +249,7 @@ def build_data(data: ResultSet[Tag],
             name: str = e[1].text
             full_name = f'{parent_full_name}/{name}'
             model = (id, e[0].text, name, full_name, None, level(type),
-                     CONTEXT_YEAR, parents_id, CONTEXT_DATE)
+                     CONTEXT_YEAR, parents_id, DATE_DICT[CONTEXT_YEAR])
             DATA_TEMP.append(model)
             a: Tag = e[0].find('a')
             if(a):
@@ -270,6 +282,11 @@ async def get_data(url: str) -> bytes:
                 body = await resp.text()
                 out('get_data', f'404出现了 {url} {body}')
                 return None
+            elif(resp.status == 502):
+                body = await resp.text()
+                out('get_data', f'502出现了 {TIME_SLEEP}秒后重试 {url} {body}')
+                time.sleep(TIME_SLEEP)
+                return await get_data(url)
             else:
                 out('get_data', '警告 捕获到未知异常 下面是当前页面请求体')
                 out('get_data', await resp.text())
