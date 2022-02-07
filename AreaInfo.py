@@ -6,7 +6,7 @@ import time
 from bs4 import BeautifulSoup
 from bs4.element import Tag, ResultSet
 import aiofiles
-from aiohttp import ClientSession, ClientTimeout, TCPConnector
+from aiohttp import ClientSession, TCPConnector, ClientTimeout, ServerDisconnectedError, ClientConnectorError
 from asyncpg import Pool
 
 
@@ -95,7 +95,7 @@ async def init_session() -> None:
     SESSION = ClientSession(
         timeout=ClientTimeout(total=time_out),
         headers=header_dic,
-        connector=TCPConnector(limit=conn_limit))
+        connector=TCPConnector(limit=conn_limit, force_close=True))
     out('init_session', f'Session初始化成功 > 超时:{time_out} 限制连接数:{conn_limit}')
 
 
@@ -137,6 +137,8 @@ async def make_data() -> None:
     out('make_data', '加载城市数据')
     global DATA_CITY
     for p in provinces:
+        ps = p[2].copy()
+        ps.append(p[1])
         p_body = await get_data(p[0])
         p_html = BeautifulSoup(p_body, 'html.parser', from_encoding='gb18030')
         p_page_rows: tuple[AreaType, ResultSet[Tag]] = read_data(p_html)
@@ -144,7 +146,7 @@ async def make_data() -> None:
                                 type=p_page_rows[0],
                                 page_url=p[0],
                                 parent_id=p[1],
-                                parents_id=p[2]+p[1],
+                                parents_id=ps,
                                 parent_full_name=p[3])
     for c in DATA_CITY:
         out('make_data', f'执行下载数据 >> {c[3]}')
@@ -158,6 +160,8 @@ async def make_data() -> None:
 
 async def next_down(info: tuple[str, int, list[int], str], is_rec: bool = True) -> None:
     """加载市以下的行政单位 不包括城市"""
+    ps = info[2].copy()
+    ps.append(info[1])
     body = await get_data(info[0])
     html = BeautifulSoup(body, 'html.parser', from_encoding='gb18030')
     next_page_rows: tuple[AreaType, ResultSet[Tag]] = read_data(html)
@@ -168,7 +172,7 @@ async def next_down(info: tuple[str, int, list[int], str], is_rec: bool = True) 
                             type=next_page_rows[0],
                             page_url=info[0],
                             parent_id=info[1],
-                            parents_id=info[2] + info[1],
+                            parents_id=ps,
                             parent_full_name=info[3])
     if(next_infos and is_rec):
         for ni in next_infos:
@@ -291,7 +295,8 @@ async def get_data(url: str) -> bytes:
                 out('get_data', '警告 捕获到未知异常 下面是当前页面请求体')
                 out('get_data', await resp.text())
                 raise Exception("get_data")
-    except (asyncio.exceptions.TimeoutError):
+    # TimeoutError类名与urllib类库的超时异常类重名 这里需要指定
+    except (asyncio.exceptions.TimeoutError, ServerDisconnectedError, ClientConnectorError):
         out('get_data', f'读取超时 {TIME_SLEEP}秒后重试 {url}')
         time.sleep(TIME_SLEEP)
         return await get_data(url)
